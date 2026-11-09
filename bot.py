@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import (
@@ -10,7 +11,7 @@ from aiogram.types import (
     InputTextMessageContent
 )
 
-# Токены теперь берутся из защищенных настроек сервера
+# Токены берутся из переменных окружения Render
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 BRICKSET_API_KEY = os.getenv('BRICKSET_API_KEY')
 
@@ -65,18 +66,14 @@ async def send_lego_result(chat_id, lego_set, status_msg=None):
     minifigs_count = lego_set.get("minifigs", 0)
     set_url = lego_set.get("bricksetURL")
     
-    # ПРАВИЛЬНЫЙ ПУТЬ: Достаем теги из блока extendedData
     extended_data = lego_set.get("extendedData", {})
     tags = extended_data.get("tags", [])
     
-    # 1. Проверяем Comic-Con (по обоим возможным тегам)
     is_comic_con = "Comic-Con Events" in tags or "San Diego Comic-Con" in tags
     tag_prefix = "🎪 <b>Эксклюзив Comic-Con!</b>\n" if is_comic_con else ""
 
-    # 2. Вытаскиваем имена минифигурок (все теги, заканчивающиеся на |n)
     minifig_names = [tag.replace("|n", "") for tag in tags if tag.endswith("|n")]
     
-    # Формируем красивую строку для минифигурок
     if minifig_names:
         minifigs_text = f"{minifigs_count} ({', '.join(minifig_names)})"
     else:
@@ -163,8 +160,26 @@ async def lego_command_handler(message: types.Message):
     else:
         await status_msg.edit_text("❌ Набор не найден.")
 
+# Веб-сервер для удержания порта на Render
+async def handle_ping(request):
+    return web.Response(text="Lego Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render передает свой порт через переменные окружения, по умолчанию берем 10000
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Веб-сервер запущен на порту {port}")
+
 async def main():
-    print("Бот запущен. Теги Comic-Con и имена фигурок работают!")
+    # Запускаем одновременно веб-сервер и бота
+    await start_web_server()
+    print("Бот запущен на Render!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
